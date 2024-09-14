@@ -1,14 +1,34 @@
 {
-  "name": "stormiui",
+  "name": "stormidb-explorer",
   "version": "1.0.0",
-  "description": "",
+  "description": "An Electron-based explorer for StormiDB",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder build --mac --win --linux",
+    "build:mac": "electron-builder build --mac",
+    "build:win": "electron-builder build --win",
+    "build:linux": "electron-builder build --linux"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "build": {
+    "appId": "com.gopersonal.stormidbexplorer",
+    "productName": "StormiDB Explorer",
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
+    }
+  },
   "dependencies": {
     "electron": "^32.1.0",
     "electron-store": "^10.0.0",
