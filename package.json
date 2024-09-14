@@ -30,11 +30,12 @@
     }
   },
   "dependencies": {
-    "electron": "^32.1.0",
     "electron-store": "^10.0.0",
     "stormidb": "^1.0.9"
   },
   "devDependencies": {
-    "electron-reload": "^2.0.0-alpha.1"
+    "electron-reload": "^2.0.0-alpha.1",
+    "electron-builder": "^24.6.4",
+    "electron": "^32.1.0"
   }
 }
