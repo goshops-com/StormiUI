@@ -31,10 +31,10 @@
   },
   "dependencies": {
     "electron-store": "^8.1.0",
-    "stormidb": "^1.0.10"
+    "stormidb": "^1.0.9"
   },
   "devDependencies": {
-    "electron": "^13.0.0",
+    "electron": "^24.0.0",
     "electron-builder": "^24.6.4",
     "dmg-license": "^1.0.11"
   },
