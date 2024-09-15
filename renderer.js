@@ -1,5 +1,5 @@
 
-const { storeGet, storeSet, connectDatabase, getCollections, queryDocuments, createDocument, updateDocument, deleteDocument: deleteDocumentAPI } = window.electronAPI;
+const { storeGet, storeSet, connectDatabase, getCollections, queryDocuments, createDocument, updateDocument, deleteDocument: deleteDocumentAPI, exportQuery } = window.electronAPI;
 
 let store;
 let stormiDB;
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadSavedConnections();
     
     initConnectionSetup();
-    initJsonEditor();
+    initQueryEditor();
     initEventListeners();
 
     const savedConnectionString = await window.electronAPI.storeGet('connectionString');
@@ -130,8 +130,26 @@ async function initCollections() {
             collectionsList.innerHTML = '';
             collections.forEach(collection => {
                 const li = document.createElement('li');
-                li.className = 'cursor-pointer p-4 hover:bg-gray-100 border-b last:border-b-0 transition duration-300';
-                li.textContent = collection;
+                li.className = 'cursor-pointer p-4 hover:bg-gray-100 border-b last:border-b-0 transition duration-300 flex items-center';
+                
+                // Create the icon
+                const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                icon.setAttribute('class', 'h-5 w-5 mr-3 text-gray-500');
+                icon.setAttribute('fill', 'none');
+                icon.setAttribute('viewBox', '0 0 24 24');
+                icon.setAttribute('stroke', 'currentColor');
+                icon.innerHTML = `
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                `;
+                
+                // Create a span for the collection name
+                const span = document.createElement('span');
+                span.textContent = collection;
+                
+                // Append icon and span to the li element
+                li.appendChild(icon);
+                li.appendChild(span);
+                
                 li.onclick = () => selectCollection(collection);
                 collectionsList.appendChild(li);
             });
@@ -144,33 +162,101 @@ async function initCollections() {
     }
 }
 
-async function handleQuery() {
-    console.log('Handling query for collection:', selectedCollection);
+function initImportButton() {
+    const importButton = document.getElementById('import-data');
+    if (importButton) {
+        importButton.addEventListener('click', handleImport);
+    }
+}
+
+async function handleImport() {
     if (!selectedCollection) {
-        console.log('No collection selected');
+        alert('Please select a collection first.');
         return;
     }
 
     try {
-        const query = editor.get();
-        console.log('Query:', query);
-        const options = {
-            limit: pageSize,
-            offset: (currentPage - 1) * pageSize
-        };
-        console.log('Query options:', options);
-        const result = await queryDocuments(selectedCollection, query, options);
-        if (result.success) {
-            console.log('Query results:', result.results);
-            displayResults(result.results);
-        } else {
-            throw new Error(result.error);
+        const { canceled, filePaths } = await window.electronAPI.showOpenDialog({
+            properties: ['openFile'],
+            filters: [{ name: 'JSONL', extensions: ['jsonl'] }]
+        });
+
+        if (canceled || filePaths.length === 0) {
+            return;
         }
+
+        const filePath = filePaths[0];
+        let fileContent;
+        try {
+            fileContent = await window.electronAPI.readFile(filePath);
+        } catch (error) {
+            console.error('Error reading file:', error);
+            alert(`Failed to read the file: ${error.message}`);
+            return;
+        }
+
+        const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+
+        let processed = 0;
+        const total = lines.length;
+
+        // Show import modal
+        const importModal = document.getElementById('import-modal');
+        const importStatus = document.getElementById('import-status');
+        const importProgress = document.getElementById('import-progress');
+        importModal.style.display = 'block';
+        importStatus.textContent = 'Starting import...';
+        importProgress.value = 0;
+
+        for (const line of lines) {
+            try {
+                const data = JSON.parse(line);
+                const id = data.id || data._id;
+                if (!id) {
+                    console.error('Skipping document without id:', data);
+                    continue;
+                }
+                await window.electronAPI.updateDocument(selectedCollection, id, data, { upsert: true });
+                processed++;
+                updateImportProgress(processed, total);
+            } catch (error) {
+                console.error('Error processing line:', line, error);
+            }
+        }
+
+        importModal.style.display = 'none';
+        alert(`Import completed. Processed ${processed} out of ${total} documents.`);
+        handleRegularQuery(); // Refresh the results
     } catch (error) {
-        console.error('Failed to query documents:', error);
-        alert('Failed to execute query. Error: ' + error.message);
+        console.error('Import failed:', error);
+        alert(`Import failed: ${error.message}`);
     }
 }
+
+function updateImportProgress(processed, total) {
+    const importStatus = document.getElementById('import-status');
+    const importProgress = document.getElementById('import-progress');
+
+    const percentage = (processed / total) * 100;
+    importStatus.textContent = `Imported ${processed} of ${total} documents`;
+    importProgress.value = percentage;
+}
+
+function parseQuery(queryString) {
+    // Remove whitespace and add quotes to property names
+    const formattedQuery = queryString.replace(/(\w+)(?=\s*:)/g, '"$1"')
+        .replace(/'/g, '"'); // Replace single quotes with double quotes
+
+    try {
+        // Attempt to parse the formatted query
+        return JSON.parse(formattedQuery);
+    } catch (error) {
+        console.error('Error parsing query:', error);
+        throw new Error('Invalid query format. Please check your syntax.');
+    }
+}
+
+
 
 function initJsonEditor() {
     const container = document.getElementById('jsoneditor');
@@ -189,13 +275,120 @@ function initJsonEditor() {
     };
     editor = new JSONEditor(container, options);
     editor.set({});
+    // Manually set the height of the editor
+    const aceEditor = editor.aceEditor;
+    if (aceEditor) {
+        aceEditor.setOptions({
+            maxLines: 2,
+            minLines: 2
+        });
+    }
 }
 
 function initEventListeners() {
-    document.getElementById('execute-query').addEventListener('click', handleQuery);
+    
     document.getElementById('prev-page').addEventListener('click', () => handlePageChange(currentPage - 1));
     document.getElementById('next-page').addEventListener('click', () => handlePageChange(currentPage + 1));
     document.getElementById('add-new-document').addEventListener('click', addNewDocument);
+    document.getElementById('export-query').addEventListener('click', handleExport);
+    document.getElementById('execute-query').addEventListener('click', handleRegularQuery);
+    document.getElementById('analyze-query').addEventListener('click', handleAnalyzeQuery);
+    document.getElementById('import-data').addEventListener('click', handleImport);
+}
+
+async function handleRegularQuery() {
+    if (!selectedCollection || !queryEditor) {
+        console.error('No collection selected or query editor not initialized');
+        return;
+    }
+
+    try {
+        const rawQuery = queryEditor.getText();
+        const parsedQuery = parseQuery(rawQuery);
+        const options = {
+            limit: pageSize,
+            offset: (currentPage - 1) * pageSize
+        };
+        const result = await queryDocuments(selectedCollection, parsedQuery, options);
+        if (result.success) {
+            displayQueryResults(result.results);
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('Failed to execute query:', error);
+        alert('Failed to execute query. Error: ' + error.message);
+    }
+}
+
+async function handleAnalyzeQuery() {
+    if (!selectedCollection) {
+        console.log('No collection selected');
+        return;
+    }
+
+    try {
+        const rawQuery = queryEditor.getText();
+        const parsedQuery = parseQuery(rawQuery);
+        const options = { analyze: true };
+        const result = await queryDocuments(selectedCollection, parsedQuery, options);
+        if (result.success) {
+            displayAnalysisResults(result.results);
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('Failed to analyze query:', error);
+        alert('Failed to analyze query. Error: ' + error.message);
+    }
+}
+
+async function handleExport() {
+    if (!selectedCollection) {
+        alert('Please select a collection first.');
+        return;
+    }
+
+    const rawQuery = queryEditor.getText();
+    let parsedQuery;
+    try {
+        parsedQuery = parseQuery(rawQuery);
+    } catch (error) {
+        alert('Invalid query format. Please check your syntax.');
+        return;
+    }
+
+    const exportModal = document.getElementById('export-modal');
+    const exportStatus = document.getElementById('export-status');
+    const exportProgress = document.getElementById('export-progress');
+
+    exportModal.style.display = 'block';
+    exportStatus.textContent = 'Starting export...';
+    exportProgress.value = 0;
+
+    try {
+        const result = await electronAPI.exportQuery(selectedCollection, parsedQuery, updateExportProgress);
+        if (result.success) {
+            alert(`Export completed successfully. File saved at: ${result.filePath}`);
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('Failed to export query results:', error);
+        alert('Failed to export query results. Error: ' + error.message);
+    } finally {
+        exportModal.style.display = 'none';
+    }
+}
+
+
+function updateExportProgress(processed, total) {
+    const exportStatus = document.getElementById('export-status');
+    const exportProgress = document.getElementById('export-progress');
+
+    const percentage = (processed / total) * 100;
+    exportStatus.textContent = `Exported ${processed} of ${total} documents`;
+    exportProgress.value = percentage;
 }
 
 function selectCollection(collection) {
@@ -205,49 +398,40 @@ function selectCollection(collection) {
     document.getElementById('query-section').classList.remove('hidden');
     document.getElementById('results-section').classList.add('hidden');
     currentPage = 1;
-    editor.set({});
+    if (queryEditor) {
+        queryEditor.set({});
+    } else {
+        console.error('Query Editor not initialized');
+    }
 }
 
-function displayResults(results) {
-    console.log('Displaying results:', results);
+function displayQueryResults(results) {
     const resultsContainer = document.getElementById('results');
+    const resultsSectionElement = document.getElementById('results-section');
+    const paginationElement = document.getElementById('pagination');
+    
+    if (!resultsContainer || !resultsSectionElement || !paginationElement) {
+        console.error('Required DOM elements are missing');
+        return;
+    }
+
     resultsContainer.innerHTML = '';
     
-    results.forEach((result, index) => {
+    results.forEach((result) => {
         const resultContainer = document.createElement('div');
         resultContainer.className = 'bg-white p-4 rounded-lg shadow-md mb-4';
         
-        const resultEditorContainer = document.createElement('div');
-        resultEditorContainer.className = 'result-editor';
-        resultContainer.appendChild(resultEditorContainer);
-
-        const resultEditor = new JSONEditor(resultEditorContainer, {
-            mode: 'view',
-            modes: ['view'],
-            enableSort: false,
-            enableTransform: false,
-            statusBar: false,
-            search: false,
-            mainMenuBar: false,
-            navigationBar: false,
-            onError: function (err) {
-                alert(err.toString());
-            }
-        });
-        resultEditor.set(result);
+        const editorContainer = document.createElement('div');
+        editorContainer.style.height = '200px';  // Set a fixed height for result editors
+        resultContainer.appendChild(editorContainer);
+        
+        const resultEditor = createResultEditor(editorContainer, result);
 
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'mt-4 flex justify-end space-x-2';
 
-        const editButton = document.createElement('button');
-        editButton.textContent = 'Edit';
-        editButton.className = 'bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition duration-300';
-        editButton.onclick = () => enableEditMode(resultEditor, buttonContainer);
-
-        const deleteButton = document.createElement('button');
-        deleteButton.textContent = 'Delete';
-        deleteButton.className = 'bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition duration-300';
-        deleteButton.onclick = () => deleteDocument(result.id);
+        const editButton = createButton('Edit', () => enableEditMode(resultEditor, buttonContainer), 'bg-yellow-500 text-white hover:bg-yellow-600', 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z');
+        const deleteButton = createButton('Delete', () => deleteDocument(result.id), 'bg-red-500 text-white hover:bg-red-600', 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16');
 
         buttonContainer.appendChild(editButton);
         buttonContainer.appendChild(deleteButton);
@@ -257,7 +441,26 @@ function displayResults(results) {
 
     totalResults = results.length; // This should be updated with the total count from the server
     updatePagination();
-    document.getElementById('results-section').classList.remove('hidden');
+    resultsSectionElement.classList.remove('hidden');
+    paginationElement.classList.remove('hidden');
+}
+
+
+function createButton(text, onClick, className, iconPath) {
+    const button = document.createElement('button');
+    button.className = `btn-icon ${className}`;
+    
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    icon.setAttribute('fill', 'none');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('stroke', 'currentColor');
+    icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${iconPath}" />`;
+    
+    button.appendChild(icon);
+    button.appendChild(document.createTextNode(text));
+    button.onclick = onClick;
+    return button;
 }
 
 function enableEditMode(resultEditor, buttonContainer) {
@@ -321,7 +524,7 @@ async function addNewDocument() {
             if (result.success) {
                 alert('New document added successfully!');
                 modalBackground.remove();
-                handleQuery();  // Refresh the results
+                handleRegularQuery();  // Refresh the results
             } else {
                 throw new Error(result.error);
             }
@@ -370,7 +573,7 @@ async function deleteDocument(id) {
             const result = await deleteDocumentAPI(selectedCollection, id);  // Use the renamed function
             if (result.success) {
                 alert('Document deleted successfully!');
-                handleQuery();  // Refresh the results
+                handleRegularQuery();  // Refresh the results
             } else {
                 throw new Error(result.error);
             }
@@ -405,16 +608,189 @@ function resetEditButtons(resultEditor, buttonContainer) {
 
 function handlePageChange(newPage) {
     currentPage = newPage;
-    handleQuery();
+    handleRegularQuery();
+}
+
+async function handleQuery(analyze = false) {
+    console.log('Handling query for collection:', selectedCollection);
+    if (!selectedCollection) {
+        console.log('No collection selected');
+        return;
+    }
+
+    try {
+        const rawQuery = editor.getText();
+        console.log('Raw query:', rawQuery);
+        
+        const parsedQuery = parseQuery(rawQuery);
+        console.log('Parsed query:', parsedQuery);
+
+        const options = {
+            limit: pageSize,
+            offset: (currentPage - 1) * pageSize,
+            analyze: analyze
+        };
+        console.log('Query options:', options);
+        const result = await queryDocuments(selectedCollection, parsedQuery, options);
+        if (result.success) {
+            console.log('Query results:', result.results);
+            if (analyze) {
+                displayAnalysisResults(result.results);
+            } else {
+                displayResults(result.results);
+            }
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('Failed to execute query:', error);
+        alert('Failed to execute query. Error: ' + error.message);
+    }
+}
+
+let queryEditor;
+
+function initQueryEditor() {
+    const container = document.getElementById('jsoneditor');
+    const options = {
+        mode: 'code',
+        modes: ['code'],
+        statusBar: false,
+        search: false,
+        mainMenuBar: false,
+        navigationBar: false,
+        onError: function (err) {
+            alert(err.toString());
+        }
+    };
+    queryEditor = new JSONEditor(container, options);
+    queryEditor.set({});
+
+    // Manually set the height of the editor
+    const aceEditor = queryEditor.aceEditor;
+    if (aceEditor) {
+        aceEditor.setOptions({
+            maxLines: 2,
+            minLines: 2
+        });
+    }
+}
+
+function createResultEditor(container, data) {
+    const options = {
+        mode: 'tree',
+        modes: ['tree', 'code'],
+        statusBar: false,
+        search: true,
+        mainMenuBar: false,
+        navigationBar: false,
+        onError: function (err) {
+            alert(err.toString());
+        }
+    };
+    const editor = new JSONEditor(container, options);
+    editor.set(data);
+    return editor;
+}
+
+function displayResults(results) {
+    console.log('Displaying results:', results);
+    const resultsContainer = document.getElementById('results');
+    const resultsSectionElement = document.getElementById('results-section');
+    
+    if (!resultsContainer || !resultsSectionElement) {
+        console.error('Required DOM elements are missing');
+        return;
+    }
+
+    resultsContainer.innerHTML = '';
+    
+    results.forEach((result) => {
+        const resultContainer = document.createElement('div');
+        resultContainer.className = 'bg-white p-4 rounded-lg shadow-md mb-4';
+        
+        const resultEditor = new JSONEditor(resultContainer, {
+            mode: 'view',
+            modes: ['view', 'code'],
+            enableSort: false,
+            enableTransform: false,
+            statusBar: false,
+            search: false,
+            mainMenuBar: false,
+            navigationBar: false,
+            onError: function (err) {
+                alert(err.toString());
+            }
+        });
+        resultEditor.set(result);
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.className = 'mt-4 flex justify-end space-x-2';
+
+        const editButton = createButton('Edit', () => enableEditMode(resultEditor, buttonContainer), 'bg-yellow-500 text-white hover:bg-yellow-600');
+        const deleteButton = createButton('Delete', () => deleteDocument(result.id), 'bg-red-500 text-white hover:bg-red-600');
+
+        buttonContainer.appendChild(editButton);
+        buttonContainer.appendChild(deleteButton);
+        resultContainer.appendChild(buttonContainer);
+        resultsContainer.appendChild(resultContainer);
+    });
+
+    totalResults = results.length; // This should be updated with the total count from the server
+    updatePagination();
+    resultsSectionElement.classList.remove('hidden');
+}
+
+function displayAnalysisResults(analysisData) {
+    const resultsContainer = document.getElementById('results');
+    const resultsSectionElement = document.getElementById('results-section');
+    const paginationElement = document.getElementById('pagination');
+    
+    if (!resultsContainer || !resultsSectionElement || !paginationElement) {
+        console.error('Required DOM elements are missing');
+        return;
+    }
+
+    resultsContainer.innerHTML = '';
+
+    const analysisContainer = document.createElement('div');
+    analysisContainer.className = 'bg-white p-4 rounded-lg shadow-md mb-4';
+
+    const title = document.createElement('h3');
+    title.textContent = 'Query Analysis';
+    title.className = 'text-lg font-semibold mb-2';
+    analysisContainer.appendChild(title);
+
+    const analysisContent = document.createElement('pre');
+    analysisContent.textContent = JSON.stringify(analysisData, null, 2);
+    analysisContent.className = 'bg-gray-100 p-2 rounded overflow-x-auto';
+    analysisContainer.appendChild(analysisContent);
+
+    resultsContainer.appendChild(analysisContainer);
+
+    resultsSectionElement.classList.remove('hidden');
+    paginationElement.classList.add('hidden');
 }
 
 function updatePagination() {
+    const paginationElement = document.getElementById('pagination');
+    if (!paginationElement) {
+        console.error('Pagination element is missing');
+        return;
+    }
+
     const prevButton = document.getElementById('prev-page');
     const nextButton = document.getElementById('next-page');
     const pageInfo = document.getElementById('page-info');
 
+    if (!prevButton || !nextButton || !pageInfo) {
+        console.error('Pagination sub-elements are missing');
+        return;
+    }
+
     prevButton.disabled = currentPage === 1;
     nextButton.disabled = currentPage * pageSize >= totalResults;
     pageInfo.textContent = `Page ${currentPage} of ${Math.ceil(totalResults / pageSize)}`;
+    paginationElement.classList.remove('hidden');
 }
 

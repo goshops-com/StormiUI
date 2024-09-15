@@ -7,6 +7,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCollections: () => ipcRenderer.invoke('get-collections'),
   queryDocuments: (collection, query, options) => ipcRenderer.invoke('query-documents', collection, query, options),
   createDocument: (collection, document) => ipcRenderer.invoke('create-document', collection, document),
-  updateDocument: (collection, id, document) => ipcRenderer.invoke('update-document', collection, id, document),
-  deleteDocument: (collection, id) => ipcRenderer.invoke('delete-document', collection, id)
+  showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+  readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  updateDocument: (collection, id, data, options) => ipcRenderer.invoke('update-document', collection, id, data, options),
+  deleteDocument: (collection, id) => ipcRenderer.invoke('delete-document', collection, id),
+  exportQuery: (collection, query, progressCallback) => {
+    ipcRenderer.on('export-progress', (event, obj) => {
+        progressCallback(obj.totalProcessed, obj.totalCount);
+    });
+    return ipcRenderer.invoke('export-query', collection, query);
+  }
 });

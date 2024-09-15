@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "electron-store": "^8.1.0",
-    "stormidb": "^1.0.9"
+    "stormidb": "^1.0.15"
   },
   "devDependencies": {
     "electron": "^24.0.0",
