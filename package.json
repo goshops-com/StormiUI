@@ -5,13 +5,13 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder build --mac --win --linux",
+    "build": "electron-builder build",
     "build:mac": "electron-builder build --mac",
     "build:win": "electron-builder build --win",
     "build:linux": "electron-builder build --linux"
   },
   "build": {
-    "appId": "com.gopersonal.stormidbexplorer",
+    "appId": "com.yourcompany.stormidbexplorer",
     "productName": "StormiDB Explorer",
     "mac": {
       "category": "public.app-category.developer-tools"
@@ -30,12 +30,14 @@
     }
   },
   "dependencies": {
-    "electron-store": "^10.0.0",
-    "stormidb": "^1.0.9"
+    "electron-store": "^8.1.0",
+    "stormidb": "^1.0.0"
   },
   "devDependencies": {
-    "electron-reload": "^2.0.0-alpha.1",
+    "electron": "^13.0.0",
     "electron-builder": "^24.6.4",
-    "electron": "^32.1.0"
-  }
+    "dmg-license": "^1.0.11"
+  },
+  "author": "Your Name",
+  "license": "MIT"
 }
