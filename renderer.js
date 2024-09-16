@@ -484,7 +484,7 @@ function enableEditMode(resultEditor, buttonContainer) {
 
 async function addNewDocument() {
     const modalBackground = document.createElement('div');
-    modalBackground.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center';
+    modalBackground.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
     
     const modal = document.createElement('div');
     modal.className = 'bg-white p-6 rounded-lg w-3/4 max-w-3xl';
@@ -494,17 +494,12 @@ async function addNewDocument() {
     title.className = 'text-xl font-semibold mb-4';
     
     const editorContainer = document.createElement('div');
-    editorContainer.className = 'mb-4 h-96';
+    editorContainer.className = 'mb-4';
+    editorContainer.style.height = '400px'; // Fixed height for the editor
     
     const newDocumentEditor = new JSONEditor(editorContainer, {
         mode: 'code',
-        modes: ['code'],
-        enableSort: false,
-        enableTransform: false,
-        statusBar: false,
-        search: false,
-        mainMenuBar: false,
-        navigationBar: false,
+        modes: ['code', 'tree'],
         onError: function (err) {
             alert(err.toString());
         }
@@ -512,7 +507,7 @@ async function addNewDocument() {
     newDocumentEditor.set({});
     
     const buttonContainer = document.createElement('div');
-    buttonContainer.className = 'flex justify-end space-x-2';
+    buttonContainer.className = 'flex justify-end space-x-2 mt-4';
     
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Save';
